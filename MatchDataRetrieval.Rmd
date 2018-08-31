@@ -1,0 +1,362 @@
+---
+title: "League of Legend: Predict Winning Team based on Machine Learning - Data Scratching and Processing"
+author: "Yunxuan Li"
+date: "3/25/2018"
+output: html_document
+---
+```{r}
+library(jsonlite)
+library(dplyr)
+```
+
+# Generate MatchList by randomly selecting a match from a player's matches and one another player from the previous player's matches
+```{r}
+key="RGAPI-f37f981a-1425-4565-8730-b8a69bdea5e3"
+author_accountID=202658521
+
+matchlist=numeric(500)
+accountlist=numeric(501)
+accountlist[1]=author_accountID
+current_accountID=accountlist[1]
+current_platform="KR"
+for (i in 1:500){
+  
+  if (current_accountID!=0){
+  player_html=paste0("https://",current_platform,".api.riotgames.com/lol/match/v3/matchlists/by-account/",current_accountID,"/recent?api_key=",key)
+  currentMatchList=fromJSON(player_html)
+  Sys.sleep(2)
+  matches=currentMatchList$matches
+  ranked=matches[which(matches$queue==420),]
+
+    if (!is.null(ranked)&&nrow(ranked)>=2){
+        rando=sample(1:nrow(ranked),2)#pick two random matches from this player's record, store one into the matchlist, and randomly choose another player in the other match to generate the next match.
+       matchlist[i]=ranked$gameId[rando[1]]
+       print(c("match",matchlist[i]))
+       if(matchlist[i]!=0){
+          match_html=paste0("https://",current_platform,".api.riotgames.com/lol/match/v3/matches/",ranked$gameId[rando[2]],"?api_key=",key)
+          currentMatch=fromJSON(match_html)
+          Sys.sleep(2)
+          currentPlayerList=currentMatch$participantIdentities$player$accountId
+    
+          currentPlayerList=currentPlayerList[currentPlayerList!=0]#Sometimes there is bug in LOL API
+    
+               if(!is.null(currentPlayerList)){
+                       rand_player_pick=sample(1:length(currentPlayerList),1)
+                        current_accountID=currentPlayerList[rand_player_pick]
+                        temp=currentMatch$participantIdentities$player$platformId[rand_player_pick]
+                        if(substr(temp,1,2)=="NA"){
+                          current_platform="NA1"
+                        }
+                        else{
+                          current_platform=temp
+                        }
+                       accountlist[i+1]=current_accountID
+                       print(c("acc",current_accountID))
+                    }
+                else{
+                       currentMatch=matchlist[i-1]}
+        }
+         else{currentMatch=matchlist[i-1]}
+    }
+    else{
+        current_accountID=accountlist[i-1]}
+  }
+  else{
+     current_accountID=accountlist[i-1]}
+}
+```
+
+
+
+
+FINAL VERSION: A BIG FORLOOP
+
+```{r}
+key="RGAPI-df983028-19f8-4d05-bd6b-234b5402baf9"
+#key="RGAPI-0313a9ae-fc93-45b5-9b71-e6cdc19a6c83"
+matches=matches_d#read.csv("matchgold.csv")
+matches=unique(matches$x)
+
+matches=matches[matches!=0]
+
+
+flatten_mat=matrix(0,length(matches),69)
+## Flatten the data
+flatten_mat=matrix(0,length(matches),69)
+colnames(flatten_mat)=c("Result",
+                        "MasteryDif_Top","MasteryDif_Jg","MasteryDif_Mid","MasteryDif_ADC","MasteryDif_Sup",
+                        "Gold10Dif_Top","Gold10Dif_Jg","Gold10Dif_Mid","Gold10Dif_ADC","Gold10Dif_Sup",
+                        "CS10Dif_Top", "CS10Dif_Jg", "CS10Dif_Mid", "CS10Dif_ADC", "CS10Dif_Sup",
+                        "Exp10Dif_Top", "Exp10Dif_Jg", "Exp10Dif_Mid", "Exp10Dif_ADC", "Exp10Dif_Sup",
+                        "DmgTaken10_Top", "DmgTaken10_Jg", "DmgTaken10_Mid", "DmgTaken10_ADC", "DmgTaken10_Sup",
+                        ## part 2
+                        "Dmg_Top","Dmg_Jg","Dmg_Mid","Dmg_ADC","Dmg_Sup",
+                        "Kills_T","Kills_J","Kills_M","Kills_A","Kills_S",
+                        "Deaths_T", "Deaths_J", "Deaths_M", "Deaths_A", "Deaths_S",
+                        "Assists_T", "Assists_J", "Assists_M", "Assists_A", "Assists_S",
+                        "Vision_T", "Vision_J", "Vision_M", "Vision_A", "Vision_S",
+                        "DmgTaken_T","DmgTaken_J","DmgTaken_M","DmgTaken_A","DmgTaken_S",
+                        "CS_T","CS_J","CS_M","CS_A","CS_S",
+                        "TowerDif","Drags","Baron",
+                        "Rank_Top","Rank_Jg","Rank_Mid","Rank_ADC","Rank_Sup"
+                        )
+flatten_mat=as.data.frame(flatten_mat)
+```
+
+```{r}
+flatten_mat=read.csv("Data_diamond.csv")
+```
+
+```{r}
+
+
+for (i in 50:length(matches)){
+  match_html=paste0("https://KR.api.riotgames.com/lol/match/v3/matches/",matches[i],"?api_key=",key)
+  Sys.sleep(1.25)
+  res=fromJSON(match_html)
+  if(res$gameDuration>360){
+          
+          lane=res$participants$timeline$lane
+          role=res$participants$timeline$role
+          
+          result=get_lane(lane,role)
+          #reorder
+          #function
+
+          if(!is.null(result) && check_2normal(result$lane))
+            {
+              tops=which(result$lane=="TOP")
+              mids=which(result$lane=="MIDDLE")
+              jgs=which(result$lane=="JUNGLE")
+              adcs=intersect(which(result$role=="DUO_CARRY"),which(result$lane=="BOTTOM"))
+              sups=intersect(which(result$role=="DUO_SUPPORT"),which(result$lane=="BOTTOM"))
+              
+              #order in each team: top, jg, mid, adc, sup
+              blue_order=c(tops[1],jgs[1],mids[1],adcs[1],sups[1])
+              red_order=c(tops[2],jgs[2],mids[2],adcs[2],sups[2])
+          
+          
+              #for mastery retrivement
+              summonerLis=res$participantIdentities$player$summonerId
+              champsLis=res$participants$championId
+          
+              #calculate achieved-rank differences between corresponding players
+              rank=res$participants$highestAchievedSeasonTier
+              rank_recode=rank%>%as.data.frame()%>%
+              mutate(rank_rec=recode(rank,
+                                 BRONZE=1000,SILVER=1350,GOLD=1650,PLATINUM=1950,DIAMOND=2250,
+                                 MASTER=2550,CHALLENGER=3000,UNRANKED=1000))
+        
+        
+          
+        
+              # mastery_list=numeric(10)
+              # for(j in 1:10){
+              #   mastery_html=paste0("https://kr.api.riotgames.com/lol/champion-mastery/v3/champion-masteries/by-summoner/",summonerLis[j],"/by-champion/",champsLis[j],"?api_key=",key)
+              #   Sys.sleep(1.25)
+              #   mas=fromJSON(mastery_html)
+              #   mastery_list[j]=mas$championPoints
+              # }
+              # 
+          
+            ##get the dfference of mastery between players with the same role
+            #flatten_mat[i,2:6]=mastery_list[blue_order]-mastery_list[red_order]
+        
+            ##get the diffference of kills,gold and experience between players with the same role
+            flatten_mat[i,12:16]=res$participants$timeline$csDiffPerMinDeltas$`0-10`[blue_order]
+            flatten_mat[i,7:11]=res$participants$timeline$goldPerMinDeltas$`0-10`[blue_order]-
+            res$participants$timeline$goldPerMinDeltas$`0-10`[red_order]
+            flatten_mat[i,17:21]=res$participants$timeline$xpDiffPerMinDeltas$`0-10`[blue_order]
+          
+            ##get the difference of damage taken between players taken the same role
+            flatten_mat[i,22:26]=res$participants$timeline$damageTakenDiffPerMinDeltas$`0-10`[blue_order]
+          
+            ##get the number of towers,drags,baron taken between two teams
+            flatten_mat$TowerDif[i]=res$teams$towerKills[1]-res$teams$towerKills[2]
+            flatten_mat$Drags[i]=res$teams$dragonKills[1]-res$teams$dragonKills[2]
+            flatten_mat$Baron[i]=res$teams$baronKills[1]-res$teams$baronKills[2]
+          
+            ##rank diff
+            flatten_mat[i,65:69]=rank_recode$rank_rec[blue_order]-rank_recode$rank_rec[red_order]
+          
+          
+            ##damage diff between two teams(upon complete the match)
+            flatten_mat[i,27:31]=res$participants$stats$totalDamageDealt[blue_order]-res$participants$stats$totalDamageDealt[red_order]
+          
+            ##kill difference
+            flatten_mat[i,32:36]=res$participants$stats$kills[blue_order]-res$participants$stats$kills[red_order]
+            ##death difference
+            flatten_mat[i,37:41]=res$participants$stats$deaths[blue_order]-res$participants$stats$deaths[red_order]
+            ##assist difference
+            flatten_mat[i,42:46]=res$participants$stats$assists[blue_order]-res$participants$stats$assists[red_order]
+          
+            ##vision difference
+            flatten_mat[i,47:51]=res$participants$stats$visionWardsBoughtInGame[blue_order]-res$participants$stats$visionWardsBoughtInGame[red_order]
+          
+            ##damagetaken difference
+            flatten_mat[i,52:56]=res$participants$stats$totalDamageTaken[blue_order]-res$participants$stats$totalDamageTaken[red_order]
+          
+          
+            ##CS difference
+            flatten_mat[i,57:61]=res$participants$stats$totalMinionsKilled[blue_order]-res$participants$stats$totalMinionsKilled[red_order]
+          
+          
+            ##get the number of towers,drags,baron taken between two teams
+            flatten_mat$TowerDif[i]=res$teams$towerKills[1]-res$teams$towerKills[2]
+            flatten_mat$Drags[i]=res$teams$dragonKills[1]-res$teams$dragonKills[2]
+            flatten_mat$Baron[i]=res$teams$baronKills[1]-res$teams$baronKills[2]
+          
+            
+            #results
+            flatten_mat$Result[i]=res$teams$teamId[res$teams$win=="Win"]
+          }
+          else{
+            
+          }
+  }
+}
+
+
+
+
+```
+```{r}
+final_set=flatten_mat[which(flatten_mat$Result!=0),]
+final_set[is.na(final_set)]=0
+write.csv(final_set,"Data_diamond.csv")
+```
+
+
+```{r}
+
+match_html=paste0("https://KR.api.riotgames.com/lol/match/v3/matches/",matches[7],"?api_key=",key)
+  Sys.sleep(3)
+  res=fromJSON(match_html)
+
+
+  lane=res$participants$timeline$lane
+  role=res$participants$timeline$role
+  
+  get_lane=function(lane,role)
+  {
+    if(sum(lane=="NONE")==10){
+      return (NULL)
+    }else{
+      lane1=lane[1:5]
+      lane2=lane[6:10]
+      role1=role[1:5]
+      role2=role[6:10]
+      if(check_normal(lane1) && check_normal(lane2)){}
+      else if (check_normal(lane1) && check_normal(lane2)==FALSE){
+        lis=c("TOP","JUNGLE","MIDDLE","BOTTOM","BOTTOM")
+        tf=c(T,T,T,T)#top,jg,mid,adc,sup
+        theory=c(1,1,1,2)
+        empi=c(sum(lane2=="TOP"),sum(lane2=="JUNGLE"),sum(lane2=="MIDDLE"),
+               sum(lane2=="BOTTOM"))
+        
+        theory_r=c("SOLO","NONE","SOLO","DUO","DUO")
+        wrong=which(theory!=empi)
+        
+        bigger=which(theory<empi)
+        wrong_role_more=lis[bigger]
+        
+        indexes=which(lane2==wrong_role_more)
+        choose1=sample(indexes,1)
+        lane2[choose1]=lis[wrong[-bigger]]
+        
+        role2=role[6:10]
+        role2=update_role(role2,lane2)
+      }
+      else if (check_normal(lane2) && check_normal(lane1)==FALSE){
+        lis=c("TOP","JUNGLE","MIDDLE","BOTTOM")
+        tf=c(T,T,T,T)#top,jg,mid,adc,sup
+        theory=c(1,1,1,2)
+        empi=c(sum(lane1=="TOP"),sum(lane1=="JUNGLE"),sum(lane1=="MIDDLE"),
+               sum(lane1=="BOTTOM"))
+        
+        theory_r=c("SOLO","NONE","SOLO","DUO","DUO")
+        wrong=which(theory!=empi)
+        
+        bigger=which(theory<empi)
+        wrong_role_more=lis[bigger]
+        
+        indexes=which(lane1==wrong_role_more)
+        choose1=sample(indexes,1)
+        lane1[choose1]=lis[wrong[which(wrong!=bigger)]]
+        
+        role1=role[1:5]
+        role1=update_role(role1,lane1)
+      }
+      return(list(role=c(role1,role2),lane=c(lane1,lane2)))
+    }
+    
+  }
+  
+  result=get_lane(lane,role)
+  
+
+update_role=function(role,lane){
+  roles=which(lane=="BOTTOM")
+  if(setequal(role[roles],c("DUO_CARRY","DUO_SUPPORT"))){
+    return (role)
+  }
+  if(setequal(role[roles],c("DUO_CARRY","DUO"))){
+    role[which(role=="DUO")]=="DUO_SUPPORT"
+  }
+  else if(setequal(role[roles],c("DUO_SUPPORT","DUO"))){
+    role[which(role=="DUO")]=="DUO_CARRY"
+  }
+  else{
+    role[roles]=c("DUO_CARRY","DUO_SUPPORT")
+  }
+  return (role)
+}
+
+
+  
+  
+check_normal=function(half_lane){
+  if(sum(half_lane=="JUNGLE")==1){
+    if(sum(half_lane=="MIDDLE")==1){
+      if(sum(half_lane=="TOP")==1){
+        return (TRUE)
+      }
+    }
+  }
+  return (FALSE)
+}
+
+check_2normal=function(half_lane){
+  if(sum(half_lane=="JUNGLE")==2){
+    if(sum(half_lane=="MIDDLE")==2){
+      if(sum(half_lane=="TOP")==2){
+        return (TRUE)
+      }
+    }
+  }
+  return (FALSE)
+}
+
+
+
+check_role_normal=function(half_role){
+  if(sum(half_role=="NONE")==1){
+    if(sum(half_role=="SOLO")==2){
+      if(sum(half_role%>%substr(1,3)=="DUO")==2){
+        return (T)
+      }
+    }
+  }
+  return (F)
+}
+
+
+
+```
+
+
+
+
+
+
+
